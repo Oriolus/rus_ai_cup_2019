@@ -1,5 +1,6 @@
 import model
 import math
+from typing import List
 
 from collections import deque
 import enum
@@ -23,6 +24,46 @@ def get_sign(num):
     elif num < 0:
         return -1
     return 0
+
+
+class GTile(object):
+    def __init__(self, tile: model.Tile, position: model.Vec2Double):
+        self.tile = tile
+        self.position = position
+
+    def stred_position(self):
+        return str(int(self.position.x)) + str(int(self.position.y))
+
+    def __repr__(self):
+        return '({}.{}):{}'.format(int(self.position.x), int(self.position.y), self.tile)
+
+
+class Graph(object):
+    def __init__(self, game: model.game, vertexes: list):
+        def build_matrix(vertexes: List[GTile]):
+            matrix = []
+            for v in vertexes:
+                path_to = []
+                for v1 in vertexes:
+                    if v.stred_position() != v1.stred_position():
+                        if v.position.x == v1.position.x:
+                            between_tiles = game.level.tiles[int(v.position.x)][v.position.y:v1.position.y]
+                            if model.Tile.WALL in between_tiles or\
+                                model.Tile.JUMP_PAD in between_tiles:
+                                path_to.append(None)
+                            else:
+                                path_to.append(MovementType.MOVE_TO)
+                        else:
+                            path_to.append(None)
+                    else:
+                        path_to.append(None)
+                matrix.append(path_to)
+            return matrix
+
+        self.game = game
+        self.vertexes = vertexes
+        self.matrix = build_matrix(self.vertexes)
+        self.game = game
 
 
 class MovementType(enum.Enum):
@@ -74,6 +115,10 @@ class JumpParams(MoveParam):
             self.jump_changed = True
         return not self.jump_changed and not is_same_position(position, self.middle_position)
 
+    @staticmethod
+    def can_jump_to(game: model.Game, from_position: model.Vec2Double, to_position: model.Vec2Double):
+        pass
+
 
 class Movement:
     def __init__(self, move_type, move_param):
@@ -87,54 +132,43 @@ class MyStrategy:
         self.jump_dy_max = 0
         self.jump_dx_max = 0
 
+        self.ground_tiles = [model.tile.Tile.WALL, model.tile.Tile.PLATFORM]
+
         self.movement = deque()
+
+    def make_graph(self, game: model.Game):
+        def is_under_surface(tiles, i, j):
+            if tiles[i][j] == model.tile.Tile.EMPTY and\
+                j > 0 and\
+                    tiles[i][j-1] in self.ground_tiles:
+                return True
+            return False
+
+        graph = []
+        vertexes = []
+        tiles = game.level.tiles
+        for i, tile_row in enumerate(tiles):
+            surface_map = []
+            for j, tile in enumerate(tile_row):
+                if is_under_surface(tiles, i, j):
+                    surface_map.append('1')
+                    vertexes.append(GTile(tile, model.Vec2Double(i, j)))
+                else:
+                    surface_map.append('0')
+            graph.append(surface_map)
+        g = Graph(game, vertexes)
+        return graph
 
     def initialize(self, unit: model.Unit, game: model.Game):
         if not self.is_initialized:
             self.jump_dy_max = game.properties.unit_jump_time * game.properties.unit_jump_speed
             self.jump_dx_max = game.properties.unit_jump_time * game.properties.unit_max_horizontal_speed
+            graph = self.make_graph(game)
 
-            self.movement.append(Movement(MovementType.JUMP_TO, JumpParams(
-                model.Vec2Double(25., 14.),
-                model.Vec2Double(20., 17.),
-                game.properties
-            )))
-            self.movement.append(Movement(
-                MovementType.MOVE_TO, MoveParam(
-                    from_pos=model.Vec2Double(27., 14.),
-                    to_pos=model.Vec2Double(25., 14.),
-                    game_params=game.properties
-            )))
-            self.movement.append(Movement(MovementType.JUMP_TO, JumpParams(
-                model.Vec2Double(27., 9.),
-                model.Vec2Double(27., 14.5),
-                game.properties
-            )))
-            self.movement.append(Movement(MovementType.JUMP_TO, JumpParams(
-                model.Vec2Double(25., 5.),
-                model.Vec2Double(27., 9.5),
-                game.properties
-            )))
-            self.movement.append(Movement(MovementType.JUMP_TO, JumpParams(
-                model.Vec2Double(25., 1.),
-                model.Vec2Double(25., 5.5),
-                game.properties
-            )))
-            self.movement.append(Movement(
-                MovementType.MOVE_TO, MoveParam(
-                    from_pos=model.Vec2Double(31., 1.),
-                    to_pos=model.Vec2Double(25., 1.),
-                    game_params=game.properties
-            )))
-            self.movement.append(Movement(MovementType.JUMP_TO, JumpParams(
-                model.Vec2Double(35.5, 1.),
-                model.Vec2Double(31., 1.),
-                game.properties
-            )))
-            self.movement.append(Movement(
-                MovementType.MOVE_TO,
-                MoveParam(unit.position, model.Vec2Double(35.5, 1.), game.properties)
-            ))
+            graph[int(unit.position.x)][int(unit.position.y)] = '!'
+            for row in reversed(list(map(list, zip(*graph)))):
+                print(''.join(row))
+
             self.is_initialized = True
 
     def current_movement(self) -> Movement:
