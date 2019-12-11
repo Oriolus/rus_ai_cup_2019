@@ -14,7 +14,7 @@ def distance(a, b):
 
 
 def is_same_position(a, b):
-    return distance(a, b) < 0.15
+    return distance(a, b) < 0.2
 
 
 def get_sign(num):
@@ -38,7 +38,7 @@ class MoveParam(object):
         self.game_params = game_params
 
     def get_velocity(self, position: model.Vec2Double):
-        return (self.to_position.x - position.x) * 10
+        return (self.to_position.x - position.x) * 100
 
     def is_in_destination(self, position: model.Vec2Double):
         return is_same_position(self.to_position, position)
@@ -58,7 +58,7 @@ class JumpParams(MoveParam):
                      (v_x * (v_down + v_up))
             return model.Vec2Double(
                 from_pos.x + (time_1 * v_x) * get_sign(to_pos.x - from_pos.x),
-                from_pos.y + time_1 * game_params.unit_fall_speed
+                from_pos.y + time_1 * game_params.unit_fall_speed if math.fabs(self.from_position.x - self.to_position.x) > 0.1 else to_pos.y
             )
 
         super().__init__(from_pos, to_pos, game_params)
@@ -93,15 +93,39 @@ class MyStrategy:
         if not self.is_initialized:
             self.jump_dy_max = game.properties.unit_jump_time * game.properties.unit_jump_speed
             self.jump_dx_max = game.properties.unit_jump_time * game.properties.unit_max_horizontal_speed
-            # self.movement.append(Movement(MovementType.JUMP_TO, JumpParams(
-            #     model.Vec2Double(29, 5.),
-            #     model.Vec2Double(27., 9.),
-            #     game.properties
-            # )))
+
+            self.movement.append(Movement(MovementType.JUMP_TO, JumpParams(
+                model.Vec2Double(25., 14.),
+                model.Vec2Double(20., 17.),
+                game.properties
+            )))
             self.movement.append(Movement(
-                MovementType.MOVE_TO,
-                MoveParam(model.Vec2Double(31., 1.), model.Vec2Double(20, 1.), game.properties)
-            ))
+                MovementType.MOVE_TO, MoveParam(
+                    from_pos=model.Vec2Double(27., 14.),
+                    to_pos=model.Vec2Double(25., 14.),
+                    game_params=game.properties
+            )))
+            self.movement.append(Movement(MovementType.JUMP_TO, JumpParams(
+                model.Vec2Double(27., 9.),
+                model.Vec2Double(27., 14.5),
+                game.properties
+            )))
+            self.movement.append(Movement(MovementType.JUMP_TO, JumpParams(
+                model.Vec2Double(25., 5.),
+                model.Vec2Double(27., 9.5),
+                game.properties
+            )))
+            self.movement.append(Movement(MovementType.JUMP_TO, JumpParams(
+                model.Vec2Double(25., 1.),
+                model.Vec2Double(25., 5.5),
+                game.properties
+            )))
+            self.movement.append(Movement(
+                MovementType.MOVE_TO, MoveParam(
+                    from_pos=model.Vec2Double(31., 1.),
+                    to_pos=model.Vec2Double(25., 1.),
+                    game_params=game.properties
+            )))
             self.movement.append(Movement(MovementType.JUMP_TO, JumpParams(
                 model.Vec2Double(35.5, 1.),
                 model.Vec2Double(31., 1.),
@@ -124,9 +148,7 @@ class MyStrategy:
 
         self.initialize(unit, game)
 
-        target_pos = unit.position
         aim = model.Vec2Double(0, 0)
-        jump = target_pos.y > unit.position.y
 
         move = self.current_movement()
 
