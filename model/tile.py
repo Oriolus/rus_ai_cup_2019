@@ -1,5 +1,6 @@
 from enum import IntEnum
 
+
 class Tile(IntEnum):
     EMPTY = 0
     WALL = 1

@@ -1,29 +1,12 @@
-import model
 import math
+
 from typing import List
-
 from collections import deque
-import enum
+from datetime import datetime
+from copy import deepcopy
 
-
-def distance_sqr(a, b):
-    return (a.x - b.x) ** 2 + (a.y - b.y) ** 2
-
-
-def distance(a, b):
-    return math.sqrt(math.fabs(distance_sqr(a, b)))
-
-
-def is_same_position(a, b):
-    return distance(a, b) < 0.2
-
-
-def get_sign(num):
-    if num > 0:
-        return 1
-    elif num < 0:
-        return -1
-    return 0
+import model
+from movements import JumpParams, MoveParam, MovementType, Movement
 
 
 class GTile(object):
@@ -35,95 +18,150 @@ class GTile(object):
         return str(int(self.position.x)) + str(int(self.position.y))
 
     def __repr__(self):
-        return '({}.{}):{}'.format(int(self.position.x), int(self.position.y), self.tile)
+        return '(x={};y={}):{}'.format(int(self.position.x), int(self.position.y), self.tile)
+
+    def get_tuple(self):
+        return self.position.get_tuple()
+
+
+class GraphVertex(object):
+    def __init__(self, from_pos: model.Vec2Double, to_pos: model.Vec2Double, move_type: MovementType, game: model.Game):
+        self.from_position = from_pos
+        self.to_position = to_pos
+        self.move_type = move_type
+        self.game = game
+        self.move_time = 0
+
+    def get_movement(self):
+        if self.move_type == MovementType.JUMP_TO:
+            return Movement(
+                self.move_type,
+                JumpParams(self.from_position, self.to_position, self.game.properties)
+            )
+        if self.move_type == MovementType.MOVE_TO:
+            return Movement(
+                self.move_type,
+                MoveParam(self.from_position, self.to_position, self.game.properties)
+            )
+        return None
+
+    def __repr__(self):
+        return '({};{})->({};{}):{}'.format(self.from_position.x, self.from_position.y,
+                                            self.to_position.x, self.to_position.y,
+                                            self.move_type)
+
+    def __hash__(self):
+        return hash(self.from_position.x)
 
 
 class Graph(object):
-    def __init__(self, game: model.game, vertexes: list):
-        def build_matrix(vertexes: List[GTile]):
+    def __init__(self, game: model.Game, vertexes: list):
+        def build_matrix(vertices: List[GTile], game: model.Game):
+            _tiles = list(zip(*game.level.tiles))
             matrix = []
-            for v in vertexes:
+            # Строим матрицу смежности:
+            #     1. по всем вершинам ищем пешие пути
+            for i, v_from in enumerate(vertices):
+                self.vertexes_map[v_from.get_tuple()] = i
                 path_to = []
-                for v1 in vertexes:
-                    if v.stred_position() != v1.stred_position():
-                        if v.position.x == v1.position.x:
-                            between_tiles = game.level.tiles[int(v.position.x)][v.position.y:v1.position.y]
-                            if model.Tile.WALL in between_tiles or\
-                                model.Tile.JUMP_PAD in between_tiles:
-                                path_to.append(None)
+                for v_to in vertices:
+                    if v_from.stred_position() != v_to.stred_position():
+                        if v_from.position.y == v_to.position.y and v_from.position.y > 0:
+                            max_x = max([v_from.position.x, v_to.position.x])
+                            min_x = min([v_from.position.x, v_to.position.x])
+
+                            tiles_between = _tiles[int(v_from.position.y)][min_x:max_x]
+                            tiles_under = _tiles[int(v_from.position.y - 1)][min_x:max_x]
+
+                            # if v_to.position.x == 37. and v_to.position.y == 1.:
+                            #     a = 1
+                            #
+                            # if v_from.position.x == 37 and v_from.position.y == 1:
+                            #     a = 1
+
+                            if model.Tile.WALL not in tiles_between\
+                                    and model.Tile.JUMP_PAD not in tiles_between\
+                                    and model.Tile.EMPTY not in tiles_under:
+                                path_to.append(GraphVertex(v_from.position, v_to.position, MovementType.MOVE_TO, game))
+                            elif model.Tile.EMPTY in tiles_under:
+                                is_one_jump = JumpParams.is_one_jump_avail(
+                                    game,
+                                    from_position=v_from.position,
+                                    to_position=v_to.position
+                                )
+                                if is_one_jump:
+                                    path_to.append(GraphVertex(v_from.position, v_to.position, MovementType.JUMP_TO, game))
+                                else:
+                                    path_to.append(None)
+                            elif model.Tile.JUMP_PAD in tiles_between:
+                                if JumpParams.is_one_jump_avail(game, v_from.position, v_to.position):
+                                    path_to.append(GraphVertex(v_from.position, v_to.position, MovementType.JUMP_TO, game))
+                                else:
+                                    path_to.append(None)
+                            elif model.Tile.WALL in tiles_between:
+                                is_one_jump = JumpParams.is_one_jump_avail(
+                                    game,
+                                    from_position=v_from.position,
+                                    to_position=v_to.position
+                                )
+                                if is_one_jump:
+                                    path_to.append(GraphVertex(v_from.position, v_to.position, MovementType.JUMP_TO, game))
+                                else:
+                                    path_to.append(None)
                             else:
-                                path_to.append(MovementType.MOVE_TO)
+                                path_to.append(None)
                         else:
-                            path_to.append(None)
+                            if JumpParams.is_one_jump_avail(game, v_from.position, v_to.position):
+                                path_to.append(GraphVertex(v_from.position, v_to.position, MovementType.JUMP_TO, game))
+                            else:
+                                path_to.append(None)
                     else:
                         path_to.append(None)
                 matrix.append(path_to)
             return matrix
 
         self.game = game
-        self.vertexes = vertexes
-        self.matrix = build_matrix(self.vertexes)
+        self.vertexes = vertexes  # type: List[GTile]
+        self.vertexes_map = {}
+        self.matrix = build_matrix(self.vertexes, game)
         self.game = game
 
+    def get_path(self, position_from: model.Vec2Double, position_to: model.Vec2Double, game: model.Game) -> List[Movement]:
+        path = []
+        index_from = self.vertexes_map[(int(position_from.x), int(position_from.y))]
+        index_to = self.vertexes_map[(int(position_to.x), int(position_to.y))]
+        if not index_from or not index_to:
+            return None
+        reverse_path = [None, ] * len(self.vertexes)
+        queue = deque()
+        queue.append(index_from)
+        reverse_path[index_from] = (-1, None)
+        step = 1
+        while len(queue) > 0:
+            cur_i = queue.pop()
+            iteration_vertex = self.vertexes[cur_i]
+            for i, vert in enumerate(self.matrix[cur_i]):
+                if vert is not None and not reverse_path[i]:
+                    if self.vertexes_map[vert.to_position.get_tuple()] == index_to:
+                        path.append(vert)
+                        prev_pos = cur_i
+                        while prev_pos != -1:
+                            path.append(reverse_path[prev_pos][1])
+                            prev_pos = reverse_path[prev_pos][0]
+                        queue.clear()
+                        break
+                    queue.append(i)
+                    reverse_path[i] = (cur_i, vert)
+            step += 1
+        return [a.get_movement() for a in path[:-1]]
 
-class MovementType(enum.Enum):
-    KILL_ENEMY = 0
-    MOVE_TO = 1
-    JUMP_TO = 2
-
-
-class MoveParam(object):
-    def __init__(self, from_pos: model.Vec2Double, to_pos: model.Vec2Double, game_params: model.Properties):
-        self.from_position = from_pos
-        self.to_position = to_pos
-        self.game_params = game_params
-
-    def get_velocity(self, position: model.Vec2Double):
-        return (self.to_position.x - position.x) * 100
-
-    def is_in_destination(self, position: model.Vec2Double):
-        return is_same_position(self.to_position, position)
-
-
-class JumpParams(MoveParam):
-    def __init__(self, from_pos: model.Vec2Double, to_pos: model.Vec2Double, game_params: model.Properties):
-        def get_middle_position(from_pos: model.Vec2Double, to_pos: model.Vec2Double, game_params: model.Properties):
-            dx = math.fabs(from_pos.x - to_pos.x)
-            dy = math.fabs(from_pos.y - to_pos.y)
-
-            v_x = game_params.unit_max_horizontal_speed
-            v_up = game_params.unit_jump_speed
-            v_down = game_params.unit_fall_speed
-
-            time_1 = (dx + v_x * dy / v_down) * v_down /\
-                     (v_x * (v_down + v_up))
-            return model.Vec2Double(
-                from_pos.x + (time_1 * v_x) * get_sign(to_pos.x - from_pos.x),
-                from_pos.y + time_1 * game_params.unit_fall_speed if math.fabs(self.from_position.x - self.to_position.x) > 0.1 else to_pos.y
-            )
-
-        super().__init__(from_pos, to_pos, game_params)
-
-        self.middle_position = get_middle_position(self.from_position, self.to_position, self.game_params)
-        self.jump_changed = False
-
-    def is_in_high_point(self, position: model.Vec2Double):
-        return is_same_position(position, self.middle_position)
-
-    def get_jump(self, position: model.Vec2Double):
-        if not self.jump_changed and is_same_position(position, self.middle_position):
-            self.jump_changed = True
-        return not self.jump_changed and not is_same_position(position, self.middle_position)
-
-    @staticmethod
-    def can_jump_to(game: model.Game, from_position: model.Vec2Double, to_position: model.Vec2Double):
-        pass
-
-
-class Movement:
-    def __init__(self, move_type, move_param):
-        self.move_type = move_type
-        self.move_param = move_param
+    def __vertex_index_by_coord(self, vertex: model.Vec2Double):
+        v_x = round(vertex.x)
+        v_y = round(vertex.y)
+        ind = None
+        for i, v in enumerate(self.vertexes):
+            if v.position.x == v_x and v.position.y == v_y:
+                return i
 
 
 class MyStrategy:
@@ -131,6 +169,7 @@ class MyStrategy:
         self.is_initialized = False
         self.jump_dy_max = 0
         self.jump_dx_max = 0
+        self.graph = None
 
         self.ground_tiles = [model.tile.Tile.WALL, model.tile.Tile.PLATFORM]
 
@@ -138,36 +177,33 @@ class MyStrategy:
 
     def make_graph(self, game: model.Game):
         def is_under_surface(tiles, i, j):
-            if tiles[i][j] == model.tile.Tile.EMPTY and\
+            # TODO: добавить лестницы!!!
+            if tiles[i][j] in [model.Tile.EMPTY, model.Tile.LADDER] and\
                 j > 0 and\
                     tiles[i][j-1] in self.ground_tiles:
                 return True
             return False
 
-        graph = []
         vertexes = []
         tiles = game.level.tiles
         for i, tile_row in enumerate(tiles):
-            surface_map = []
             for j, tile in enumerate(tile_row):
                 if is_under_surface(tiles, i, j):
-                    surface_map.append('1')
                     vertexes.append(GTile(tile, model.Vec2Double(i, j)))
-                else:
-                    surface_map.append('0')
-            graph.append(surface_map)
         g = Graph(game, vertexes)
-        return graph
+        return g
 
     def initialize(self, unit: model.Unit, game: model.Game):
         if not self.is_initialized:
             self.jump_dy_max = game.properties.unit_jump_time * game.properties.unit_jump_speed
             self.jump_dx_max = game.properties.unit_jump_time * game.properties.unit_max_horizontal_speed
-            graph = self.make_graph(game)
+            print(str(datetime.now()))
+            self.graph = self.make_graph(game)
+            print(str(datetime.now()))
 
-            graph[int(unit.position.x)][int(unit.position.y)] = '!'
-            for row in reversed(list(map(list, zip(*graph)))):
-                print(''.join(row))
+            a = self.graph.get_path(unit.position, model.Vec2Double(20., 1.), game)
+
+            self.movement.extend(a)
 
             self.is_initialized = True
 
@@ -183,7 +219,6 @@ class MyStrategy:
         self.initialize(unit, game)
 
         aim = model.Vec2Double(0, 0)
-
         move = self.current_movement()
 
         jump = False
