@@ -1,8 +1,11 @@
 import math
 import enum
 import model
+from typing import List
 
+from my_strategy import LevelPoint
 from helper import is_same_position, get_sign, distance
+from primitives import Line
 
 
 class MovementType(enum.Enum):
@@ -82,7 +85,20 @@ class JumpParams(MoveParam):
         return game_props.unit_jump_time * game_props.unit_max_horizontal_speed
 
     @staticmethod
-    def is_one_jump_avail(game: model.Game, from_position: model.Vec2Double, to_position: model.Vec2Double):
+    def is_one_jump_avail(
+            from_position: model.Vec2Double,
+            to_position: model.Vec2Double,
+            game: model.Game,
+            tiles: List[List[LevelPoint]]
+    ):
+        def has_common_point(tile_line: Line, jump_line1: Line, jump_line2: Line):
+            common_point = tile_line.common_point_with(jump_line1)
+            if common_point and tile_line.is_inside(common_point):
+                return True
+            common_point = tile_line.common_point_with(jump_line2)
+            if common_point and tile_line.is_inside(common_point):
+                return True
+            return False
         # Quick check
         max_dx = JumpParams.get_jump_max_dx(game.properties)
         if math.fabs(from_position.x - to_position.x) > max_dx:
@@ -94,6 +110,35 @@ class JumpParams(MoveParam):
         if distance(from_position, to_position) > max_r:
             return False
 
+        row_count = int(max_dy) + 1
+        row_from = min(int(from_position.x - row_count), 0)
+        row_to = max(from_position.x+row_count, len(game.level.tiles))
+        rows = tiles[row_from:row_to]  # type: List[List[LevelPoint]]
+        col_count = int(max_dx) + 1
+        col_from = min(int(from_position.x - col_count), 0)
+        col_to = max(int(from_position.x + col_count), len(rows[0]))
+
+        jump = JumpParams(
+            from_position,
+            to_position,
+            game.properties
+        )
+
+        jump_line1 = Line(jump.from_position, jump.middle_position)
+        jump_line2 = Line(jump.middle_position, jump.to_position)
+
+        solid_tiles = [model.Tile.JUMP_PAD, model.Tile.WALL, model.Tile.PLATFORM]
+        for row in rows:  # type: List[LevelPoint]
+            solid_cells = filter(lambda x: x.tile in solid_tiles, row[col_from:col_to])
+            for cell in solid_cells:  # type: LevelPoint
+                if has_common_point(cell.lines.top, jump_line1, jump_line2):
+                    return False
+                if has_common_point(cell.lines.bottom, jump_line1, jump_line2):
+                    return False
+                if has_common_point(cell.lines.left, jump_line1, jump_line2):
+                    return False
+                if has_common_point(cell.lines.right, jump_line1, jump_line2):
+                    return False
         return True
 
 
