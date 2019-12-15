@@ -39,7 +39,7 @@ class GraphVertex(object):
 
 class Graph(object):
     def __init__(self, game: model.Game, level: List[List[LevelPoint]], vertexes: list):
-        def build_matrix(vertices: List[LevelPoint], game: model.Game):
+        def build_matrix(vertices: List[LevelPoint], game: model.Game, level: List[List[LevelPoint]]):
             _tiles = list(zip(*game.level.tiles))
             matrix = []
             # Строим матрицу смежности:
@@ -56,10 +56,8 @@ class Graph(object):
                             tiles_between = _tiles[int(v_from.position.y)][min_x:max_x]
                             tiles_under = _tiles[int(v_from.position.y - 1)][min_x:max_x]
 
-                            # if v_to.position.x == 37. and v_to.position.y == 1.:
-                            #     a = 1
-                            #
-                            # if v_from.position.x == 37 and v_from.position.y == 1:
+                            # if v_from.position.x == 36 and v_from.position.y == 1\
+                            #         and v_to.position.x > 25:
                             #     a = 1
 
                             if model.Tile.WALL not in tiles_between\
@@ -96,6 +94,8 @@ class Graph(object):
                             else:
                                 path_to.append(None)
                         else:
+                            if v_from.position.x == 29 and v_to.position.x == 29:
+                                a = 1
                             if JumpParams.is_one_jump_avail(v_from.position, v_to.position, game, level):
                                 path_to.append(GraphVertex(v_from.position, v_to.position, MovementType.JUMP_TO, game))
                             else:
@@ -108,7 +108,8 @@ class Graph(object):
         self.game = game
         self.vertexes = vertexes  # type: List[LevelPoint]
         self.vertexes_map = {}
-        self.matrix = build_matrix(self.vertexes, game)
+        self.level = level
+        self.matrix = build_matrix(self.vertexes, game, level)
         self.game = game
 
     def get_path(self, position_from: model.Vec2Double, position_to: model.Vec2Double, game: model.Game) -> List[Movement]:
@@ -156,43 +157,48 @@ class MyStrategy:
         self.jump_dx_max = 0
 
         self.graph = None
+
         self.level_points = None
 
         self.ground_tiles = [model.tile.Tile.WALL, model.tile.Tile.PLATFORM]
 
         self.movement = deque()
 
-    def make_graph(self, game: model.Game):
+    def make_graph(self, game: model.Game, level_points: List[List[LevelPoint]]):
         def is_under_surface(tiles, i, j):
             # TODO: добавить лестницы!!!
             if tiles[i][j] in [model.Tile.EMPTY, model.Tile.LADDER] and\
-                j > 0 and\
-                    tiles[i][j-1] in self.ground_tiles:
+                i > 0 and\
+                    tiles[i-1][j] in self.ground_tiles:
                 return True
             return False
 
         vertexes = []
-        tiles = game.level.tiles
-        level_points = []
+        tiles = list(zip(*game.level.tiles))
         for i, tile_row in enumerate(tiles):
-            row_points = []
             for j, tile in enumerate(tile_row):
                 if is_under_surface(tiles, i, j):
-                    vertexes.append(LevelPoint(tile, model.Vec2Double(i, j)))
-                row_points.append(LevelPoint(tile, model.Vec2Double(i, j)))
-            level_points.append(row_points)
+                    vertexes.append(LevelPoint(tile, model.Vec2Double(j, i)))  # (i, j) -> (y, x)
         g = Graph(game, level_points, vertexes)
-        return g, level_points
+        return g
 
     def initialize(self, unit: model.Unit, game: model.Game):
         if not self.is_initialized:
             self.jump_dy_max = game.properties.unit_jump_time * game.properties.unit_jump_speed
             self.jump_dx_max = game.properties.unit_jump_time * game.properties.unit_max_horizontal_speed
+
+            self.level_points = []
+            for i, tile_row in enumerate(list(zip(*game.level.tiles))):
+                level_row = []
+                for j, tile in enumerate(tile_row):
+                    level_row.append(LevelPoint(tile, model.Vec2Double(j, i))) # (i,j) -> (y,x)
+                self.level_points.append(level_row)
+
             print(str(datetime.now()))
-            self.graph, self.level_points = self.make_graph(game)
+            self.graph = self.make_graph(game, self.level_points)
             print(str(datetime.now()))
 
-            a = self.graph.get_path(unit.position, model.Vec2Double(20., 1.), game)
+            a = self.graph.get_path(unit.position, model.Vec2Double(25., 9.), game)
 
             self.movement.extend(a)
 
@@ -234,7 +240,7 @@ class MyStrategy:
                 self.movement.pop()
             else:
                 velocity = move_params.get_velocity(unit.position)
-                jump = move_params.get_jump(unit.position)
+                jump = move_params.get_jump_flag(unit.position)
 
         return model.UnitAction(
             velocity=velocity,

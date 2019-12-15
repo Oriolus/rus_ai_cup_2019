@@ -1,3 +1,4 @@
+import math
 from typing import Optional
 
 
@@ -34,16 +35,17 @@ class Line(object):
         self.__calculate_line()
 
     def __repr__(self):
-        return '{}x + {}y + {} = 0'.format(
-            round(self.A, 3),
-            round(self.B, 3),
-            round(self.C, 3)
+        return '({};{}),({};{})'.format(
+            round(self.v1.x, 3),
+            round(self.v1.y, 3),
+            round(self.v2.x, 3),
+            round(self.v2.y, 3)
         )
 
     def __calculate_line(self):
         """Calculate line params"""
         self.A = self.v1.y - self.v2.y
-        self.B = self.v1.x - self.v2.x
+        self.B = self.v2.x - self.v1.x
         self.C = self.v1.x * self.v2.y - self.v2.x * self.v1.y
 
     def common_point_with(self, other: 'Line') -> Optional[Vec2Double]:
@@ -53,12 +55,14 @@ class Line(object):
         d = self.A * other.B - other.A * self.B
         if d == 0.:
             return None
-        dx = self.C * other.B - other.C * self.B
-        dy = self.A * other.C - other.A * self.C
+        _c1 = (- self.C)
+        _c2 = (- other.C)
+        dx = _c1 * other.B - _c2 * self.B
+        dy = self.A * _c2 - other.A * _c1
         return Vec2Double(dx / d, dy / d)
 
     def is_inside(self, point: Vec2Double) -> bool:
-        return (distance(self.v1, self.v2) - (distance(point, self.v1) + distance(point, self.v2))) < 0.01
+        return math.fabs(distance(self.v1, self.v2) - (distance(point, self.v1) + distance(point, self.v2))) < 0.01
 
 
 class TileLines(object):
